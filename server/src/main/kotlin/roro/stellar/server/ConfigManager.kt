@@ -342,7 +342,11 @@ class ConfigManager {
         fun loadFromManagerWithStatus(): Pair<StellarConfig, Boolean> {
             return try {
                 val reply = callProvider("loadConfig", null)
-                val json = reply?.getString("configJson")
+                if (reply == null) {
+                    LOGGER.w("从 manager 加载配置失败: 返回 null，使用默认值并跳过初始化写入")
+                    return Pair(StellarConfig(), false)
+                }
+                val json = reply.getString("configJson")
                 if (json != null) {
                     val config = GSON_IN.fromJson(json, StellarConfig::class.java) ?: StellarConfig()
                     Pair(config, true)
