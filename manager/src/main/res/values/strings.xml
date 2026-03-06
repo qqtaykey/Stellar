@@ -79,6 +79,7 @@
     <string name="basic_permission_subtitle">Access Stellar features</string>
     <string name="follow_startup">Auto Start</string>
     <string name="follow_startup_subtitle">Start with Stellar</string>
+    <string name="select_all">Select All</string>
 
     <!-- Settings Screen -->
     <string name="theme">Theme</string>

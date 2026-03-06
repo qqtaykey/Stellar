@@ -77,6 +77,7 @@
     <string name="basic_permission_subtitle">Доступ к функциям Stellar</string>
     <string name="follow_startup">Автозапуск</string>
     <string name="follow_startup_subtitle">Запускать вместе со Stellar</string>
+    <string name="select_all">Выбрать все</string>
 
     <!-- Settings Screen -->
     <string name="theme">Тема</string>

@@ -8,7 +8,10 @@ import android.graphics.drawable.Drawable
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,18 +33,28 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,17 +67,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
@@ -88,8 +102,8 @@ import roro.stellar.manager.ui.navigation.components.createTopAppBarScrollBehavi
 import roro.stellar.manager.ui.theme.AppShape
 import roro.stellar.manager.ui.theme.AppSpacing
 import roro.stellar.manager.util.Logger.Companion.LOGGER
-import roro.stellar.manager.util.StellarSystemApis
 import roro.stellar.manager.util.PinyinUtils
+import roro.stellar.manager.util.StellarSystemApis
 import roro.stellar.manager.util.UserHandleCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,6 +128,10 @@ fun AppsScreen(
     val focusRequester = remember { FocusRequester() }
     val searchScope = rememberCoroutineScope()
 
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedApps by remember { mutableStateOf(setOf<String>()) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             if (Stellar.pingBinder()) {
@@ -132,7 +150,18 @@ fun AppsScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             if (isSearching) {
-                androidx.compose.material3.TopAppBar(
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    ),
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSearching = false
+                            searchQuery = ""
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = null)
+                        }
+                    },
                     title = {
                         BasicTextField(
                             value = searchQuery,
@@ -142,11 +171,9 @@ fun AppsScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester),
+                            modifier = Modifier.focusRequester(focusRequester),
                             decorationBox = { innerTextField ->
-                                Box {
+                                Box(modifier = Modifier.padding(vertical = 8.dp)) {
                                     if (searchQuery.isEmpty()) {
                                         Text(
                                             text = stringResource(R.string.search_apps),
@@ -159,12 +186,15 @@ fun AppsScreen(
                             }
                         )
                     },
-                    navigationIcon = {
+                    actions = {
                         IconButton(onClick = {
-                            isSearching = false
-                            searchQuery = ""
+                            isSelectionMode = true
+                            selectedApps = emptySet()
                         }) {
-                            Icon(Icons.Default.Close, contentDescription = null)
+                            Icon(
+                                Icons.Default.Checklist,
+                                contentDescription = null
+                            )
                         }
                     }
                 )
@@ -174,7 +204,9 @@ fun AppsScreen(
                     scrollBehavior = scrollBehavior,
                     titleContent = {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -182,19 +214,29 @@ fun AppsScreen(
                                 text = stringResource(R.string.authorized_apps),
                                 fontWeight = FontWeight.Bold
                             )
-                            IconButton(onClick = {
-                                searchScope.launch {
-                                    val target = topAppBarState.heightOffsetLimit
-                                    animate(
-                                        initialValue = topAppBarState.heightOffset,
-                                        targetValue = target
-                                    ) { value, _ ->
-                                        topAppBarState.heightOffset = value
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(onClick = {
+                                    searchScope.launch {
+                                        val target = topAppBarState.heightOffsetLimit
+                                        animate(
+                                            initialValue = topAppBarState.heightOffset,
+                                            targetValue = target
+                                        ) { value, _ ->
+                                            topAppBarState.heightOffset = value
+                                        }
+                                        isSearching = true
                                     }
-                                    isSearching = true
+                                }) {
+                                    Icon(Icons.Default.Search, contentDescription = null)
                                 }
-                            }) {
-                                Icon(Icons.Default.Search, contentDescription = null)
+                                IconButton(onClick = {
+                                    isSelectionMode = true
+                                    selectedApps = emptySet()
+                                }) {
+                                    Icon(Icons.Default.Checklist, contentDescription = null)
+                                }
                             }
                         }
                     }
@@ -324,18 +366,19 @@ fun AppsScreen(
                         }
                     }
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(gridColumns),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(
-                            top = paddingValues.calculateTopPadding() + AppSpacing.topBarContentSpacing,
-                            bottom = AppSpacing.screenBottomPadding,
-                            start = AppSpacing.screenHorizontalPadding,
-                            end = AppSpacing.screenHorizontalPadding
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(gridColumns),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                top = paddingValues.calculateTopPadding() + AppSpacing.topBarContentSpacing,
+                                bottom = AppSpacing.screenBottomPadding,
+                                start = AppSpacing.screenHorizontalPadding,
+                                end = AppSpacing.screenHorizontalPadding
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                         // Stellar 原生应用分组
                         if (stellarApps.isNotEmpty()) {
                             item(span = { GridItemSpan(gridColumns) }) {
@@ -354,8 +397,18 @@ fun AppsScreen(
                                 val appInfo = stellarApps[index]
                                 AppListItem(
                                     appInfo = appInfo,
+                                    refreshTrigger = refreshTrigger,
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = selectedApps.contains(appInfo.packageInfo.packageName),
+                                    onSelectionChange = { selected ->
+                                        selectedApps = if (selected) {
+                                            selectedApps + appInfo.packageInfo.packageName
+                                        } else {
+                                            selectedApps - appInfo.packageInfo.packageName
+                                        }
+                                    },
                                     onUpdateFlag = { _ ->
-                                        appsViewModel.load(true)
+                                        refreshTrigger++
                                     }
                                 )
                             }
@@ -379,14 +432,132 @@ fun AppsScreen(
                                 val appInfo = shizukuApps[index]
                                 AppListItem(
                                     appInfo = appInfo,
+                                    refreshTrigger = refreshTrigger,
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = selectedApps.contains(appInfo.packageInfo.packageName),
+                                    onSelectionChange = { selected ->
+                                        selectedApps = if (selected) {
+                                            selectedApps + appInfo.packageInfo.packageName
+                                        } else {
+                                            selectedApps - appInfo.packageInfo.packageName
+                                        }
+                                    },
                                     onUpdateFlag = { _ ->
-                                        appsViewModel.load(true)
+                                        refreshTrigger++
                                     }
                                 )
                             }
                         }
                     }
+
+                    if (isSelectionMode) {
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    val allApps = (stellarApps + shizukuApps).map { it.packageInfo.packageName }
+                                    selectedApps = if (selectedApps.size == allApps.size) emptySet() else allApps.toSet()
+                                },
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 2.dp, 2.dp, 2.dp),
+                                icon = { Icon(Icons.Default.SelectAll, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                                text = { Text(stringResource(R.string.select_all), style = MaterialTheme.typography.labelMedium) }
+                            )
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    isSelectionMode = false
+                                    selectedApps = emptySet()
+                                },
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 2.dp, 2.dp, 2.dp),
+                                icon = { Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                                text = { Text(stringResource(R.string.cancel), style = MaterialTheme.typography.labelMedium) }
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    selectedApps.forEach { pkg ->
+                                        val app = (stellarApps + shizukuApps).find { it.packageInfo.packageName == pkg }
+                                        app?.let {
+                                            try {
+                                                val uid = it.packageInfo.applicationInfo?.uid ?: return@forEach
+                                                val isShizuku = it.appType == AppType.SHIZUKU
+                                                val type = if (isShizuku) "shizuku" else "stellar"
+                                                val flag = if (isShizuku) 0 else AuthorizationManager.FLAG_ASK
+                                                Stellar.updateFlagForUid(uid, type, flag)
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+                                    refreshTrigger++
+                                    isSelectionMode = false
+                                    selectedApps = emptySet()
+                                },
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 2.dp, 2.dp, 2.dp),
+                                icon = { Icon(Icons.Default.HelpOutline, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                                text = { Text(stringResource(R.string.permission_ask), style = MaterialTheme.typography.labelMedium) }
+                            )
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    selectedApps.forEach { pkg ->
+                                        val app = (stellarApps + shizukuApps).find { it.packageInfo.packageName == pkg }
+                                        app?.let {
+                                            try {
+                                                val uid = it.packageInfo.applicationInfo?.uid ?: return@forEach
+                                                val isShizuku = it.appType == AppType.SHIZUKU
+                                                val type = if (isShizuku) "shizuku" else "stellar"
+                                                val flag = if (isShizuku) 2 else AuthorizationManager.FLAG_GRANTED
+                                                Stellar.updateFlagForUid(uid, type, flag)
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+                                    refreshTrigger++
+                                    isSelectionMode = false
+                                    selectedApps = emptySet()
+                                },
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 2.dp, 2.dp, 2.dp),
+                                icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                                text = { Text(stringResource(R.string.permission_allow), style = MaterialTheme.typography.labelMedium) }
+                            )
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    selectedApps.forEach { pkg ->
+                                        val app = (stellarApps + shizukuApps).find { it.packageInfo.packageName == pkg }
+                                        app?.let {
+                                            try {
+                                                val uid = it.packageInfo.applicationInfo?.uid ?: return@forEach
+                                                val isShizuku = it.appType == AppType.SHIZUKU
+                                                val type = if (isShizuku) "shizuku" else "stellar"
+                                                val flag = if (isShizuku) 4 else AuthorizationManager.FLAG_DENIED
+                                                Stellar.updateFlagForUid(uid, type, flag)
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+                                    refreshTrigger++
+                                    isSelectionMode = false
+                                    selectedApps = emptySet()
+                                },
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                elevation = FloatingActionButtonDefaults.elevation(2.dp, 2.dp, 2.dp, 2.dp),
+                                icon = { Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(22.dp)) },
+                                text = { Text(stringResource(R.string.permission_deny), style = MaterialTheme.typography.labelMedium) }
+                            )
+                        }
+                    }
                 }
+            }
             }
 
             null -> {}
@@ -407,6 +578,10 @@ fun AppsScreen(
 @Composable
 fun AppListItem(
     appInfo: AppInfo,
+    refreshTrigger: Int,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onSelectionChange: (Boolean) -> Unit = {},
     onUpdateFlag: (Int) -> Unit
 ) {
     val context = LocalContext.current
@@ -429,6 +604,23 @@ fun AppListItem(
             }
         } else {
             ai.loadLabel(pm).toString()
+        }
+    }
+
+    fun drawableToBitmap(drawable: Drawable): Bitmap? {
+        if (drawable is BitmapDrawable) {
+            return drawable.bitmap
+        }
+        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 48
+        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 48
+        return try {
+            val bitmap = createBitmap(width, height)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bitmap
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -462,7 +654,7 @@ fun AppListItem(
         }
     }
 
-    var stellarFlag by remember {
+    var stellarFlag by remember(refreshTrigger) {
         mutableIntStateOf(
             try {
                 val rawFlag = Stellar.getFlagForUid(uid, permissionType)
@@ -474,7 +666,7 @@ fun AppListItem(
         )
     }
 
-    var followStartupFlag by remember {
+    var followStartupFlag by remember(refreshTrigger) {
         mutableIntStateOf(
             try {
                 Stellar.getFlagForUid(uid, "follow_stellar_startup")
@@ -493,139 +685,190 @@ fun AppListItem(
         scope.launch {
             val logs = withContext(Dispatchers.IO) {
                 if (!Stellar.pingBinder()) return@withContext null
-                try { Stellar.getLogsForUid(uid) } catch (_: Throwable) { null }
+                try {
+                    Stellar.getLogsForUid(uid)
+                } catch (_: Throwable) {
+                    null
+                }
             }
             when {
-                logs == null -> Toast.makeText(context, context.getString(R.string.logs_app_not_running), Toast.LENGTH_LONG).show()
-                logs.isEmpty() -> Toast.makeText(context, context.getString(R.string.no_logs_to_copy), Toast.LENGTH_SHORT).show()
+                logs == null -> Toast.makeText(
+                    context,
+                    context.getString(R.string.logs_app_not_running),
+                    Toast.LENGTH_LONG
+                ).show()
+
+                logs.isEmpty() -> Toast.makeText(
+                    context,
+                    context.getString(R.string.no_logs_to_copy),
+                    Toast.LENGTH_SHORT
+                ).show()
+
                 else -> {
                     ClipboardUtils.put(context, logs.joinToString("\n"))
-                    Toast.makeText(context, context.getString(R.string.logs_copied), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.logs_copied),
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         }
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth(),
-        shape = AppShape.shapes.cardMedium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
-    ) {
-        val rotation by animateFloatAsState(targetValue = if (expanded) 90f else 0f, label = "")
-        Row(
+    val cardPaddingStart by animateDpAsState(
+        targetValue = if (isSelectionMode) 48.dp else 0.dp,
+        label = "cardPadding"
+    )
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .combinedClickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = { expanded = !expanded },
-                    onLongClick = { onLongPress() }
-                ),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = cardPaddingStart),
+            shape = AppShape.shapes.cardMedium,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
+            )
         ) {
-            if (iconPainter != null) {
-                Image(
-                    painter = iconPainter,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(AppShape.shapes.iconSmall)
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(AppShape.shapes.iconSmall)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = appName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = packageName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Text(
-                text = when (stellarFlag) {
-                    AuthorizationManager.FLAG_ASK -> stringResource(R.string.permission_ask)
-                    AuthorizationManager.FLAG_GRANTED -> stringResource(R.string.permission_allow)
-                    AuthorizationManager.FLAG_DENIED -> stringResource(R.string.permission_deny)
-                    else -> stringResource(R.string.unknown)
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.rotate(rotation).size(24.dp)
-            )
-        }
-
-        AnimatedVisibility(visible = expanded) {
-            Column(
+            val rotation by animateFloatAsState(targetValue = if (expanded) 90f else 0f, label = "")
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            if (isSelectionMode) {
+                                onSelectionChange(!isSelected)
+                            } else {
+                                expanded = !expanded
+                            }
+                        },
+                        onLongClick = { if (!isSelectionMode) onLongPress() }
+                    ),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                PermissionItem(
-                    title = if (isShizukuApp) stringResource(R.string.shizuku_permission) else stringResource(R.string.basic_permission),
-                    subtitle = if (isShizukuApp) stringResource(R.string.shizuku_permission_subtitle) else stringResource(R.string.basic_permission_subtitle),
-                    currentFlag = stellarFlag,
-                    onFlagChange = { newFlag ->
-                        try {
-                            stellarFlag = newFlag
-                            val actualFlag = if (isShizukuApp) stellarToShizukuFlag(newFlag) else newFlag
-                            Stellar.updateFlagForUid(uid, permissionType, actualFlag)
-                            onUpdateFlag(newFlag)
-                        } catch (e: Exception) {
-                            LOGGER.e("更新权限失败", tr = e)
-                        }
-                    }
+                if (iconPainter != null) {
+                    Image(
+                        painter = iconPainter,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(AppShape.shapes.iconSmall)
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(AppShape.shapes.iconSmall)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = appName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = packageName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Text(
+                    text = when (stellarFlag) {
+                        AuthorizationManager.FLAG_ASK -> stringResource(R.string.permission_ask)
+                        AuthorizationManager.FLAG_GRANTED -> stringResource(R.string.permission_allow)
+                        AuthorizationManager.FLAG_DENIED -> stringResource(R.string.permission_deny)
+                        else -> stringResource(R.string.unknown)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
-                if (!isShizukuApp) {
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.rotate(rotation).size(24.dp)
+                )
+            }
+
+            AnimatedVisibility(visible = expanded && !isSelectionMode) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     PermissionItem(
-                        title = stringResource(R.string.follow_startup),
-                        subtitle = stringResource(R.string.follow_startup_subtitle),
-                        currentFlag = followStartupFlag,
+                        title = if (isShizukuApp) stringResource(R.string.shizuku_permission) else stringResource(
+                            R.string.basic_permission
+                        ),
+                        subtitle = if (isShizukuApp) stringResource(R.string.shizuku_permission_subtitle) else stringResource(
+                            R.string.basic_permission_subtitle
+                        ),
+                        currentFlag = stellarFlag,
                         onFlagChange = { newFlag ->
                             try {
-                                followStartupFlag = newFlag
-                                Stellar.updateFlagForUid(uid, "follow_stellar_startup", newFlag)
+                                stellarFlag = newFlag
+                                val actualFlag =
+                                    if (isShizukuApp) stellarToShizukuFlag(newFlag) else newFlag
+                                Stellar.updateFlagForUid(uid, permissionType, actualFlag)
+                                onUpdateFlag(newFlag)
                             } catch (e: Exception) {
-                                LOGGER.e("更新跟随启动权限失败", tr = e)
+                                LOGGER.e("更新权限失败", tr = e)
                             }
                         }
                     )
+
+                    if (!isShizukuApp) {
+                        PermissionItem(
+                            title = stringResource(R.string.follow_startup),
+                            subtitle = stringResource(R.string.follow_startup_subtitle),
+                            currentFlag = followStartupFlag,
+                            onFlagChange = { newFlag ->
+                                try {
+                                    followStartupFlag = newFlag
+                                    Stellar.updateFlagForUid(uid, "follow_stellar_startup", newFlag)
+                                } catch (e: Exception) {
+                                    LOGGER.e("更新跟随启动权限失败", tr = e)
+                                }
+                            }
+                        )
+                    }
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = isSelectionMode,
+            enter = slideInHorizontally(initialOffsetX = { -it * 2 }),
+            exit = slideOutHorizontally(targetOffsetX = { -it * 2 }),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = (-8).dp)
+        ) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = onSelectionChange
+            )
         }
     }
 }
 
 @Composable
-private fun PermissionItem(
+fun PermissionItem(
     title: String,
     subtitle: String,
     currentFlag: Int,
@@ -660,7 +903,7 @@ private fun PermissionItem(
 }
 
 @Composable
-private fun PermissionSegmentSelector(
+fun PermissionSegmentSelector(
     currentFlag: Int,
     onFlagChange: (Int) -> Unit
 ) {
@@ -684,21 +927,3 @@ private fun PermissionSegmentSelector(
     )
 }
 
-private fun drawableToBitmap(drawable: Drawable): Bitmap? {
-    if (drawable is BitmapDrawable) {
-        return drawable.bitmap
-    }
-
-    val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 48
-    val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 48
-
-    return try {
-        val bitmap = createBitmap(width, height)
-        val canvas = Canvas(bitmap)
-        drawable.setBounds(0, 0, canvas.width, canvas.height)
-        drawable.draw(canvas)
-        bitmap
-    } catch (_: Exception) {
-        null
-    }
-}
