@@ -68,8 +68,11 @@ shizuku/     → Shizuku 兼容层
 - ADB 无线配对：`adb/` 包实现完整的 ADB 协议栈（配对、mDNS 发现、连接）
 - 数据层：`db/`（Room 数据库）、`model/`、`domain/`
 - 授权管理：`authorization/`（RequestPermissionActivity、AuthorizationManager）
-- 开机自启：`receiver/BootCompleteReceiver` + `startup/boot/`（BootScriptManager、Chid、Starter）+ `service/StellarAccessibilityService`
+- 开机自启：广播/回调入口为 `receiver/BootCompleteReceiver`、`receiver/StellarReceiver`、`receiver/StellarReceiverStarter`；ADB 自启动核心在 `startup/worker/AdbStartWorker`；通知交互在 `startup/notification/BootStartNotifications`
 - 开机启动模式：`StellarSettings.BootMode` 四选一（NONE / BROADCAST / ACCESSIBILITY / SCRIPT）
+- 当前广播自启动仅监听 `BOOT_COMPLETED`，不再依赖 `LOCKED_BOOT_COMPLETED`
+- 后台拉起路径依赖 `StellarSettings.LaunchMethod`，会按上次成功启动方式在 Root / ADB 之间选择
+- `LaunchMethod.UNKNOWN` 当前保留兼容回退，优先尝试 Root，失败后再尝试 ADB
 - JNI 层：`src/main/jni/` 包含 starter（服务启动器）、chid（降权工具）、adb_pairing、rish 等 native 组件
 - 多语言：英语（默认）、简体中文、繁体中文（TW/HK）、法语、俄语、阿拉伯语、西班牙语
 
